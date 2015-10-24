@@ -19,7 +19,7 @@ def build_lookup_table(inv_gamma):
 def trackbar_changed(x):
     pass
 
-img = cv2.imread('../data/drowning.png', 0)
+img = cv2.imread('data/drowning.png', 0)
 cv2.namedWindow('img')
 cv2.namedWindow('gamma corrected')
 
