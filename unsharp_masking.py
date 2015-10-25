@@ -1,9 +1,7 @@
 from __future__ import division
 import numpy
 import cv2
-
-def trackbar_changed(x):
-    pass 
+from common_utils import trackbar_changed_do_nothing
 
 img = cv2.imread('./data/eye.png')
 blurred = cv2.GaussianBlur(img, (3, 3), sigmaX=0, sigmaY=0)
@@ -12,7 +10,7 @@ gamma = 0
 cv2.namedWindow('img')
 cv2.namedWindow('blurred')
 cv2.namedWindow('unsharp masking')
-cv2.createTrackbar('gamma', 'unsharp masking', 1, 500, trackbar_changed)
+cv2.createTrackbar('gamma', 'unsharp masking', 1, 500, trackbar_changed_do_nothing)
 
 while True:
     gamma = cv2.getTrackbarPos('gamma', 'unsharp masking') / 100
