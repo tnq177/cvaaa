@@ -1,6 +1,8 @@
 from __future__ import print_function, division
 import numpy
 import cv2
+from skimage.transform import SimilarityTransform
+from skimage.measure import ransac
 
 img1 = cv2.imread('./data/yosemite1.jpg')
 img2 = cv2.imread('./data/yosemite2.jpg')
@@ -23,10 +25,12 @@ for m,n in matches:
     if m.distance < 0.7*n.distance:
         good.append(m)
 
-src_pts = numpy.float32([ kp2[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
-dst_pts = numpy.float32([ kp1[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
+src_pts = numpy.float32([ kp2[m.queryIdx].pt for m in good ]).reshape(-1,2)
+dst_pts = numpy.float32([ kp1[m.trainIdx].pt for m in good ]).reshape(-1,2)
 
-M = cv2.estimateRigidTransform(src_pts, dst_pts, fullAffine=False)
+model_robust, inliers = ransac((src_pts, dst_pts), SimilarityTransform, min_samples=3,
+                               residual_threshold=2, max_trials=100)
+M = model_robust.params[:2, :]
 
 rows, cols = img2.shape[:2]
 # This is the tricky part. For transform, the point is identified as pair of (col, row) instead of (row, col)
