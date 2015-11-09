@@ -4,6 +4,7 @@ import cv2
 from skimage.transform import SimilarityTransform
 from skimage.measure import ransac
 from scipy.optimize import leastsq
+from lmfit import minimize, Parameters
 
 img1 = cv2.imread('./data/yosemite1.jpg')
 img2 = cv2.imread('./data/yosemite2.jpg')
@@ -37,9 +38,10 @@ M1 = model_robust.params[:2, :]
 src_pts = src_pts[inliers]
 dst_pts = dst_pts[inliers]
 
+
 def residuals(params):
     global src_pts, dst_pts
-    a, b, tx, ty = params
+    a, b, tx, ty = params['a'], params['b'], params['tx'], params['ty']
 
     M = numpy.float32([[a, b, tx], [-b, a, ty]])
     one_column = numpy.ones((src_pts.shape[0], 1), dtype=numpy.float32)
@@ -50,9 +52,14 @@ def residuals(params):
     res = numpy.sqrt(res[:, 0] + res[:, 1])
     return res
 
-params = [1.0, 0.0, 100.0, 100.0]
-out = leastsq(residuals, params)[0]
-M2 = numpy.float32([[out[0], out[1], out[2]], [-out[1], out[0], out[3]]])
+params = Parameters()
+params.add('a', 0.916515139)
+params.add('b', 0.4)
+params.add('tx', -1000.0)
+params.add('ty', 3000.0)
+out = minimize(residuals, params).params
+a, b, tx, ty = out['a'], out['b'], out['tx'], out['ty']
+M2 = numpy.float32([[a, b, tx], [-b, a, ty]])
 
 
 def getPano(M, img1, img2):
@@ -89,5 +96,4 @@ M2_pano = getPano(M2, img1, img2)
 
 cv2.imshow('With Skimage & OpenCV', M1_pano)
 cv2.imshow('With M found by leastsq', M2_pano)
-cv2.imshow('diff', cv2.subtract(M1_pano, M2_pano))
 cv2.waitKey()
