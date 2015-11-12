@@ -9,16 +9,19 @@ are discarded.
 
 Since this is just a simple implementation, it consists only these steps:
 
-1/ Extract features from each image 
+1/ Extract features from each image
 2/ Match features between each pair of images
 3/ Use RANSAC to extract only inliers of these features which satisfy the similarity
 transform model
-4/ Use these inliers to minimize the SSD (function 2 in the paper) to find the 
-set of transform matrix for each image 
+4/ Use these inliers to minimize the SSD (function 2 in the paper) to find the
+set of transform matrix for each image
 5/ Apply the transformations & merged the transformed images into a big one
+
+Data taken from http://www1.cs.columbia.edu/CAVE/projects/scene_collage/imagegallery.php
 """
 from __future__ import print_function, division
 import pdb
+import datetime
 import numpy
 import cv2
 from os import listdir
@@ -26,18 +29,20 @@ from os.path import isfile, join
 from skimage.transform import SimilarityTransform
 from skimage.measure import ransac
 from lmfit import minimize, Parameters
+import timeit
 
 
 class Image(object):
 
     def __init__(self, image_path, index):
-        self.index = index
         self.img = cv2.imread(image_path)
-        self.img = cv2.resize(self.img, (320, 240))
         if self.img is None:
             raise ValueError('Image not found')
-
+        self.image_path = image_path
+        scale_factor = round(2400 / min(self.img.shape[:2])) / 10
+        self.img = cv2.resize(self.img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
         self.gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
+        self.index = index
         self.M = None
 
         sift = cv2.xfeatures2d.SIFT_create()
@@ -48,20 +53,15 @@ class Panography(object):
 
     def __init__(self, images_directory_path):
         image_paths = [join(images_directory_path, f) for f in listdir(images_directory_path) if isfile(
-            join(images_directory_path, f)) and f.endswith(('.png', '.jpg'))]
+            join(images_directory_path, f)) and f.endswith(('.png', '.jpg', '.JPG'))]
         self.images = [Image(image_path, index)
                        for index, image_path in enumerate(image_paths)]
 
     def _get_largest_blob(self):
-        _, thresh = cv2.threshold(self.connected, 100, 255, 0)
-        _, contours, _ = cv2.findContours(thresh, 1, 2)
-        areas = [cv2.contourArea(cnt) for cnt in contours]
-        max_blob_idx = numpy.argmax(areas)
-
-        mask = numpy.zeros(self.connected.shape, dtype=numpy.uint8)
-        cv2.drawContours(mask, contours, max_blob_idx, 255, -1)
-        self.connected = cv2.bitwise_and(
-            self.connected, self.connected, mask=mask)
+        '''
+        Meant to find the largest set of images that are connected
+        Not implemented (previous implementation was wrong)
+        '''
         self.connected_indices = numpy.array(
             numpy.where(self.connected == 255))
         self.unique_indices = list(
@@ -69,67 +69,62 @@ class Panography(object):
 
     def _extract_feature_pairs(self):
         length = len(self.images)
-
+        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
         self.connected = numpy.zeros((length, length), dtype=numpy.uint8)
+
         self.feature_points = {}
         for i in xrange(length - 1):
             self.feature_points[i] = {}
             for j in xrange(i + 1, length):
                 self.feature_points[i][j] = [[], []]
 
-        FLANN_INDEX_KDTREE = 0
-        index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-        search_params = dict(checks=50)
-        flann = cv2.FlannBasedMatcher(index_params, search_params)
-
         for i in xrange(length - 1):
             for j in xrange(i + 1, length):
-                print("---extracting features---")
                 image_1 = self.images[i]
                 image_2 = self.images[j]
 
-                matches = flann.knnMatch(image_1.des, image_2.des, k=2)
-                good = []
-                for m, n in matches:
-                    if m.distance < 0.7 * n.distance:
-                        good.append(m)
+                matches = bf.knnMatch(image_1.des, image_2.des, k=2)
+                good = [m for m, n in matches if m.distance < 0.8 * n.distance]
 
                 # Not enough good points
                 if len(good) < 10:
+                    print("{0} NOT ENOUGH {1}".format(
+                        image_1.image_path, image_2.image_path))
                     continue
 
-                # cv2.estimateRigidTransform uses ransac and return affine transform matrix
-                # if the points given do not make up a good transform
-                # it returns None
                 src_pts = numpy.float32(
                     [image_1.kp[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
                 dst_pts = numpy.float32(
                     [image_2.kp[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+
                 if cv2.estimateRigidTransform(src_pts, dst_pts, False) is None:
+                    print("{0} FAIL {1}".format(
+                        image_1.image_path, image_2.image_path))
                     continue
 
-                # Now use skimage ransac to get the inliers
-                # Yes I know there is a duplicate. But what can I do, cv2.estimateRigidTransform
-                # does not give me the inliersssssssss
                 src_pts = src_pts.reshape(-1, 2)
                 dst_pts = dst_pts.reshape(-1, 2)
-
+                # Now use skimage ransac to get the inliers
                 model_robust, inliers = ransac(
-                    (src_pts, dst_pts), SimilarityTransform, min_samples=3, residual_threshold=2, max_trials=100)
-                
-                if len(inliers) < 10:
-                    continue
+                    (src_pts, dst_pts), SimilarityTransform, min_samples=4, residual_threshold=11)
 
-                print("{0} --> {1}: {2} features".format(i, j, len(inliers)))
+                # print("{0} MATCH {1}".format(image_1.image_path, image_2.image_path))
+                print("{0} --> {1}: Inlier RATIO {2}".format(i,
+                                                             j, len(src_pts[inliers]) / len(src_pts)))
+                src_pts = src_pts[inliers]
+                dst_pts = dst_pts[inliers]
+                one_column = numpy.ones(
+                    (src_pts.shape[0], 1), dtype=numpy.float32)
+                src_pts = numpy.hstack((src_pts, one_column))
+                dst_pts = numpy.hstack((dst_pts, one_column))
+
                 self.feature_points[image_1.index][
-                    image_2.index] = [src_pts[inliers], dst_pts[inliers]]
+                    image_2.index] = [src_pts, dst_pts]
                 self.connected[image_1.index][image_2.index] = 255
 
     def _residuals(self, params):
-        print('---minimizing---')
         res = []
         for i, j in zip(self.connected_indices[0], self.connected_indices[1]):
-            src_pts, dst_pts = self.feature_points[i][j]
             a1 = params["a{0}".format(i)].value
             b1 = params["b{0}".format(i)].value
             tx1 = params["tx{0}".format(i)].value
@@ -139,17 +134,13 @@ class Panography(object):
             b2 = params["b{0}".format(j)].value
             tx2 = params["tx{0}".format(j)].value
             ty2 = params["ty{0}".format(j)].value
-            src_M = numpy.float32([[a1, b1, tx1], [-b1, a1, ty1]])
-            dst_M = numpy.float32([[a2, b2, tx2], [-b2, a2, ty2]])
+            src_M = numpy.float32([[a1, -b1], [b1, a1], [tx1, ty1]])
+            dst_M = numpy.float32([[a2, -b2], [b2, a2], [tx2, ty2]])
 
-            one_column = numpy.ones((src_pts.shape[0], 1), dtype=numpy.float32)
-            _src_pts = numpy.hstack((src_pts, one_column))
-            _dst_pts = numpy.hstack((dst_pts, one_column))
-
-            temp = _src_pts.dot(src_M.T) - _dst_pts.dot(dst_M.T)
+            temp = self.feature_points[i][j][0].dot(src_M) - self.feature_points[i][j][1].dot(dst_M)
             temp = temp ** 2
             res.extend(numpy.sqrt(temp[:, 0] + temp[:, 1]))
-        print()
+
         return res
 
     def _calculate_layout(self):
@@ -168,6 +159,7 @@ class Panography(object):
             params.add("tx{0}".format(idx), value=100.0)
             params.add("ty{0}".format(idx), value=100.0)
 
+        print('---minimizing---')
         out = minimize(self._residuals, params)
 
         for image in self.images:
@@ -222,16 +214,25 @@ class Panography(object):
                 if _max_col > max_col:
                     max_col = _max_col
 
-        result = numpy.zeros((max_row, max_col, 3), dtype=numpy.uint8)
+        result = numpy.zeros((max_row, max_col, 3), numpy.uint8)
+        result.fill(255)
+        result = cv2.cvtColor(result, cv2.COLOR_BGR2BGRA)
         for image in self.images:
             if image.index in self.unique_indices:
-                transformed_img = cv2.warpAffine(
-                    image.img, image.M, (max_col, max_row))
-                numpy.copyto(result, transformed_img, where=result == 0)
+                transformed_img = cv2.warpAffine(image.img, image.M, (max_col, max_row), borderMode=cv2.BORDER_TRANSPARENT)
+                transformed_img = cv2.cvtColor(transformed_img, cv2.COLOR_BGR2BGRA)
+                numpy.copyto(result, transformed_img, where=numpy.logical_and(result == 255, transformed_img != 255))
 
-        cv2.imshow('panograph', result)
-        cv2.waitKey()
+        result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
+        return result
 
-pano = Panography('./data/panograph_4')
-pano.get_layout()
-pano.merge()
+if __name__ == '__main__':
+    s1 = timeit.default_timer()
+    pano = Panography('./data/panograph_8')
+    pano.get_layout()
+    result = pano.merge()
+    s2 = timeit.default_timer()
+    print('It takes {0} seconds'.format(s2 - s1))
+    cv2.imwrite("~/Downloads/{0}.jpg".format(datetime.datetime.now().strftime("%I:%M%p%s on %B %d, %Y")), result)
+    cv2.imshow('result', result)
+    cv2.waitKey()
