@@ -18,6 +18,51 @@ set of transform matrix for each image
 5/ Apply the transformations & merged the transformed images into a big one
 
 Data taken from http://www1.cs.columbia.edu/CAVE/projects/scene_collage/imagegallery.php
+
+Update:
+So there are quite a handful of parameters to configure. I admit defeat.
+Just some config for the test data:
+
+panograph:
+    ~50 seconds
+    Commentary: Hmm, because these images contain some part of cloud texture, I think increasing 
+    contrastThreshold and using more features from overlapping areas(increase size) could help?
+    resize_height=640, bnnRatio=0.8, contrastThreshold=0.1, ransacThreshold=10.0, min_samples=8, max_trials=1000
+
+panograph_2:
+    ~200 seconds
+    resize_height=360, bnnRatio=0.8, contrastThreshold=0.001, ransacThreshold=10.0, min_samples=4, max_trials=1000
+
+panograph_3:
+    ~8 seconds
+    resize_height=360, bnnRatio=0.9, contrastThreshold=0.1, ransacThreshold=10.0, min_samples=4, max_trials=1000
+
+panograph_4: 
+    ~44 seconds
+    resize_height=240, bnnRatio=0.8, contrastThreshold=0.04, ransacThreshold=11.0, min_samples=4, max_trials=1000
+
+panograph_5: 
+    ~37 seconds
+    resize_height=640, bnnRatio=0.7, contrastThreshold=0.1, ransacThreshold=11.0, min_samples=4, max_trials=1000
+
+panograph_6: 
+    ~121 seconds
+    Geez a different config takes only 60 seconds T.T, but I forgot it -.-"
+    resize_height=360, bnnRatio=0.8, contrastThreshold=0.01, ransacThreshold=10.0, min_samples=4, max_trials=1000
+
+panograph_7: 
+    ~132 seconds
+    resize_height=360, bnnRatio=0.8, contrastThreshold=0.01, ransacThreshold=10.0, min_samples=4, max_trials=1000)
+
+panograph_8:
+    ~20 seconds
+    Commentary: These images seem to have low contrast, it seems like lowering the contrastThreshold helps with 
+    finding features & fitting 
+    resize_height=240, bnnRatio=0.8, contrastThreshold=0.01, ransacThreshold=11.0, min_samples=8, max_trials=1000
+
+panograph_9:
+    ~98 seconds
+    resize_height=240, bnnRatio=0.8, contrastThreshold=0.04, ransacThreshold=11.0, min_samples=4, max_trials=1000
 """
 from __future__ import print_function, division
 import pdb
@@ -30,31 +75,39 @@ from skimage.transform import SimilarityTransform
 from skimage.measure import ransac
 from lmfit import minimize, Parameters
 import timeit
+from random import randint
 
 
 class Image(object):
 
-    def __init__(self, image_path, index):
+    def __init__(self, image_path, index, resize_height=320, contrastThreshold=0.04):
         self.img = cv2.imread(image_path)
         if self.img is None:
             raise ValueError('Image not found')
         self.image_path = image_path
-        scale_factor = round(2400 / min(self.img.shape[:2])) / 10
+        scale_factor = round(resize_height * 10 / min(self.img.shape[:2])) / 10
         self.img = cv2.resize(self.img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
         self.gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
         self.index = index
         self.M = None
 
-        sift = cv2.xfeatures2d.SIFT_create()
+        sift = cv2.xfeatures2d.SIFT_create(contrastThreshold=contrastThreshold)
         self.kp, self.des = sift.detectAndCompute(self.gray, None)
 
 
 class Panography(object):
 
-    def __init__(self, images_directory_path):
+    def __init__(self, images_directory_path, resize_height=320, bnnRatio=0.8, contrastThreshold=0.04, ransacThreshold=10.0, min_samples=6, max_trials=1000):
+        self.bnnRatio = bnnRatio
+        self.contrastThreshold = contrastThreshold
+        self.ransacThreshold = ransacThreshold
+        self.min_samples = min_samples
+        self.max_trials = max_trials
+        self.resize_height = resize_height
+
         image_paths = [join(images_directory_path, f) for f in listdir(images_directory_path) if isfile(
             join(images_directory_path, f)) and f.endswith(('.png', '.jpg', '.JPG'))]
-        self.images = [Image(image_path, index)
+        self.images = [Image(image_path, index, resize_height=self.resize_height, contrastThreshold=self.contrastThreshold)
                        for index, image_path in enumerate(image_paths)]
 
     def _get_largest_blob(self):
@@ -66,6 +119,7 @@ class Panography(object):
             numpy.where(self.connected == 255))
         self.unique_indices = list(
             set(numpy.array(self.connected_indices).flatten()))
+        print(self.unique_indices)
 
     def _extract_feature_pairs(self):
         length = len(self.images)
@@ -84,7 +138,7 @@ class Panography(object):
                 image_2 = self.images[j]
 
                 matches = bf.knnMatch(image_1.des, image_2.des, k=2)
-                good = [m for m, n in matches if m.distance < 0.8 * n.distance]
+                good = [m for m, n in matches if m.distance < self.bnnRatio * n.distance]
 
                 # Not enough good points
                 if len(good) < 10:
@@ -105,12 +159,21 @@ class Panography(object):
                 src_pts = src_pts.reshape(-1, 2)
                 dst_pts = dst_pts.reshape(-1, 2)
                 # Now use skimage ransac to get the inliers
-                model_robust, inliers = ransac(
-                    (src_pts, dst_pts), SimilarityTransform, min_samples=4, residual_threshold=11)
+                model_robust, inliers = ransac((src_pts, dst_pts), SimilarityTransform, min_samples=self.min_samples, residual_threshold=self.ransacThreshold, max_trials=self.max_trials)
+                if len(inliers[inliers]) < 8:
+                    continue
 
-                # print("{0} MATCH {1}".format(image_1.image_path, image_2.image_path))
-                print("{0} --> {1}: Inlier RATIO {2}".format(i,
-                                                             j, len(src_pts[inliers]) / len(src_pts)))
+                # print(len(inliers[inliers]))
+                # draw_params = dict(matchColor = (0,255,0), # draw matches in green color
+                #    singlePointColor = None,
+                #    matchesMask = inliers.ravel().tolist(), # draw only inliers
+                #    flags = 2)
+
+                # img3 = cv2.drawMatches(image_1.img, image_1.kp, image_2.img, image_2.kp, good,None,**draw_params)
+                # cv2.imshow('inliers', img3)
+                # cv2.waitKey()
+
+                print("{0} --> {1}: {2} Inliers, RATIO {3}".format(i, j, len(src_pts[inliers]), len(src_pts[inliers]) / len(src_pts)))
                 src_pts = src_pts[inliers]
                 dst_pts = dst_pts[inliers]
                 one_column = numpy.ones(
@@ -141,6 +204,8 @@ class Panography(object):
             temp = temp ** 2
             res.extend(numpy.sqrt(temp[:, 0] + temp[:, 1]))
 
+        # Print out to see the optimization process
+        # print(sum(res))
         return res
 
     def _calculate_layout(self):
@@ -156,8 +221,8 @@ class Panography(object):
             idx = self.unique_indices[i]
             params.add("a{0}".format(idx), value=1.0)
             params.add("b{0}".format(idx), value=0.0)
-            params.add("tx{0}".format(idx), value=100.0)
-            params.add("ty{0}".format(idx), value=100.0)
+            params.add("tx{0}".format(idx), value=randint(0, 100))
+            params.add("ty{0}".format(idx), value=randint(0, 100))
 
         print('---minimizing---')
         out = minimize(self._residuals, params)
@@ -224,15 +289,14 @@ class Panography(object):
                 numpy.copyto(result, transformed_img, where=numpy.logical_and(result == 255, transformed_img != 255))
 
         result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
+
         return result
 
 if __name__ == '__main__':
     s1 = timeit.default_timer()
-    pano = Panography('./data/panograph_8')
+    pano = Panography('./data/panograph_8', resize_height=360, bnnRatio=0.8, contrastThreshold=0.1, ransacThreshold=10.0, min_samples=4, max_trials=1000)
     pano.get_layout()
     result = pano.merge()
     s2 = timeit.default_timer()
     print('It takes {0} seconds'.format(s2 - s1))
-    cv2.imwrite("~/Downloads/{0}.jpg".format(datetime.datetime.now().strftime("%I:%M%p%s on %B %d, %Y")), result)
-    cv2.imshow('result', result)
-    cv2.waitKey()
+    cv2.imwrite("{0}.jpg".format(datetime.datetime.now().strftime("%I:%M%p%s on %B %d, %Y")), result)
