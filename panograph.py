@@ -25,7 +25,7 @@ Just some config for the test data:
 
 panograph:
     ~50 seconds
-    Commentary: Hmm, because these images contain some part of cloud texture, I think increasing 
+    Commentary: Hmm, because these images contain some part of cloud texture, I think increasing
     contrastThreshold and using more features from overlapping areas(increase size) could help?
     resize_height=640, bnnRatio=0.8, contrastThreshold=0.1, ransacThreshold=10.0, min_samples=8, max_trials=1000
 
@@ -37,27 +37,27 @@ panograph_3:
     ~8 seconds
     resize_height=360, bnnRatio=0.9, contrastThreshold=0.1, ransacThreshold=10.0, min_samples=4, max_trials=1000
 
-panograph_4: 
+panograph_4:
     ~44 seconds
     resize_height=240, bnnRatio=0.8, contrastThreshold=0.04, ransacThreshold=11.0, min_samples=4, max_trials=1000
 
-panograph_5: 
+panograph_5:
     ~37 seconds
     resize_height=640, bnnRatio=0.7, contrastThreshold=0.1, ransacThreshold=11.0, min_samples=4, max_trials=1000
 
-panograph_6: 
+panograph_6:
     ~121 seconds
     Geez a different config takes only 60 seconds T.T, but I forgot it -.-"
     resize_height=360, bnnRatio=0.8, contrastThreshold=0.01, ransacThreshold=10.0, min_samples=4, max_trials=1000
 
-panograph_7: 
+panograph_7:
     ~132 seconds
     resize_height=360, bnnRatio=0.8, contrastThreshold=0.01, ransacThreshold=10.0, min_samples=4, max_trials=1000)
 
 panograph_8:
     ~20 seconds
-    Commentary: These images seem to have low contrast, it seems like lowering the contrastThreshold helps with 
-    finding features & fitting 
+    Commentary: These images seem to have low contrast, it seems like lowering the contrastThreshold helps with
+    finding features & fitting
     resize_height=240, bnnRatio=0.8, contrastThreshold=0.01, ransacThreshold=11.0, min_samples=8, max_trials=1000
 
 panograph_9:
@@ -69,13 +69,12 @@ import pdb
 import datetime
 import numpy
 import cv2
-from os import listdir
-from os.path import isfile, join
 from skimage.transform import SimilarityTransform
 from skimage.measure import ransac
 from lmfit import minimize, Parameters
 import timeit
 from random import randint
+from common_utils import get_images_paths
 
 
 class Image(object):
@@ -105,8 +104,7 @@ class Panography(object):
         self.max_trials = max_trials
         self.resize_height = resize_height
 
-        image_paths = [join(images_directory_path, f) for f in listdir(images_directory_path) if isfile(
-            join(images_directory_path, f)) and f.endswith(('.png', '.jpg', '.JPG'))]
+        image_paths = get_images_paths(images_directory_path)
         self.images = [Image(image_path, index, resize_height=self.resize_height, contrastThreshold=self.contrastThreshold)
                        for index, image_path in enumerate(image_paths)]
 
@@ -294,7 +292,7 @@ class Panography(object):
 
 if __name__ == '__main__':
     s1 = timeit.default_timer()
-    pano = Panography('./data/panograph_8', resize_height=360, bnnRatio=0.8, contrastThreshold=0.1, ransacThreshold=10.0, min_samples=4, max_trials=1000)
+    pano = Panography('./data/panograph_4', resize_height=240, bnnRatio=0.8, contrastThreshold=0.04, ransacThreshold=11.0, min_samples=4, max_trials=1000)
     pano.get_layout()
     result = pano.merge()
     s2 = timeit.default_timer()
