@@ -22,7 +22,8 @@ from common_utils import focal_from_homography, get_images_paths, estimate_focal
 class Image(object):
 
     def __init__(self, img, contrastThreshold=0.04):
-        self.img = img
+        self.original = img
+        self.img = cv2.cvtColor(self.original, cv2.COLOR_BGRA2BGR)
         if self.img is None:
             raise ValueError("Yo, give me a valid image")
 
@@ -43,6 +44,10 @@ class TranslationalPanorama(object):
         self.knnRatio = knnRatio
         self.ransacThreshold = ransacThreshold
 
+        self.drift_y_up = 0.0
+        self.drift_y_down = 0.0
+        self.drift_x_max = 0.0
+
     def _build_spherical_map(self):
         """Summary: Build spherical map_x, map_y to warp images into spherical
         coordinates. Really expect the images to have the same shape.
@@ -50,7 +55,8 @@ class TranslationalPanorama(object):
         Returns:
             tuple of ndarrays: (map_x, map_y)
         """
-        print('Building spherical map from original to spherical coordinates using f, k1, k2')
+        print(
+            'Building spherical map from original to spherical coordinates using f, k1, k2')
         h, w = cv2.imread(self.images_paths[0], 0).shape
         # Calculate the final shape of warped image
         w_ = 2 * self.f * numpy.arctan2(w, (2 * self.f))
@@ -86,7 +92,9 @@ class TranslationalPanorama(object):
         self.images = []
         for image_path in self.images_paths:
             img = cv2.imread(image_path)
-            spherical = cv2.remap(img, self.map_x, self.map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+            spherical = cv2.remap(
+                img, self.map_x, self.map_y, cv2.INTER_CUBIC, borderMode=cv2.BORDER_TRANSPARENT)
             self.images.append(Image(spherical))
 
     def calc_transformations(self):
@@ -108,95 +116,76 @@ class TranslationalPanorama(object):
                 [image_2.kp[m.trainIdx].pt for m in good]).reshape(-1, 2)
 
             model_robust, _ = ransac((src_pts, dst_pts), TranslationTransform,
-                                     min_samples=6, residual_threshold=self.ransacThreshold, max_trials=1000)
+                                     min_samples=6,
+                                     residual_threshold=self.ransacThreshold,
+                                     max_trials=1000,
+                                     stop_sample_num=0.9 * src_pts.shape[0])
+
             tx, ty = model_robust.params
             M = numpy.float32([[1, 0, tx], [0, 1, ty], [0, 0, 1]])
             image_1.M = M.dot(image_2.M)
-            print(image_1.M)
+
+            tx, ty = image_1.M[0, 2], image_1.M[1, 2]
+            if ty > 0 and ty > self.drift_y_down:
+                self.drift_y_down = ty
+            elif ty < 0 and ty < self.drift_y_up:
+                self.drift_y_up = ty
+
+            self.drift_x_max = tx
 
     def merge(self):
-        min_row, min_col = 0, 0
-        for i in [0, len(self.images) - 1]:
-            image = self.images[i]
-            print('---finding final panograph size---')
-            rows, cols = image.img.shape[:2]
-            box = numpy.array([[0, 0], [cols - 1, 0], [cols - 1, rows - 1],
-                               [0, rows - 1]], dtype=numpy.float32).reshape(-1, 1, 2)
-            transformed_box = cv2.transform(box, image.M)
-            _min_col = min(transformed_box[:, :, 0])[0]
-            _min_row = min(transformed_box[:, :, 1])[0]
+        rows, cols = self.images[0].img.shape[:2]
+        final_cols = int(cols + numpy.abs(self.drift_x_max)) + 1
+        final_rows = int(rows + self.drift_y_down - self.drift_y_up) + 1
+        result = numpy.zeros((final_rows, final_cols, 3), numpy.uint8)
+        global_mask = numpy.zeros((final_rows, final_cols), numpy.bool)
 
-            if _min_row < min_row:
-                min_row = _min_row
-            if _min_col < min_col:
-                min_col = _min_col
-
-        if min_row < 0:
-            min_row = -min_row
-        if min_col < 0:
-            min_col = -min_col
-
-        max_row, max_col = 0, 0
-        for i in [0, len(self.images) - 1]:
-            image = self.images[i]
-            print('---finding final panograph size---')
-            M = image.M.copy()
-            M[0, 2] += min_col
-            M[1, 2] += min_row
-
-            transformed_box = cv2.transform(box, M)
-            _max_col = max(transformed_box[:, :, 0])[0]
-            _max_row = max(transformed_box[:, :, 1])[0]
-
-            if _max_row > max_row:
-                max_row = _max_row
-            if _max_col > max_col:
-                max_col = _max_col
-
-        result = numpy.zeros((max_row, max_col, 3), numpy.uint8)
-        result.fill(255)
-        result = cv2.cvtColor(result, cv2.COLOR_BGR2BGRA)
         print('Merging')
         for image in self.images:
-            image.M[0, 2] += min_col
-            image.M[1, 2] += min_row
+            image.M[1, 2] -= self.drift_y_up
+            if self.drift_x_max < 0:
+                image.M[0, 2] -= self.drift_x_max
+
             transformed_img = cv2.warpPerspective(
-                image.img, image.M, (max_col, max_row), borderMode=cv2.BORDER_TRANSPARENT)
-            transformed_img = cv2.cvtColor(transformed_img, cv2.COLOR_BGR2BGRA)
-            numpy.copyto(result, transformed_img, where=numpy.logical_and(
-                result == 255, transformed_img != 255))
+                image.original,
+                image.M,
+                (final_cols, final_rows),
+                borderMode=cv2.BORDER_TRANSPARENT)
+            mask = transformed_img[:, :, 3] / 255 == 1
+            numpy.copyto(
+                result, transformed_img[:, :, :3], 
+                where=numpy.dstack((mask,) * 3))
+            numpy.copyto(global_mask, mask, where=mask)
 
-        result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
-
+        result[~global_mask] = [255, 255, 255]
         return result
 
 if __name__ == '__main__':
-    for name in ['carmel', 'diamondhead', 'fishbowl', 'goldengate', 'halfdome', 'hotel', 'office', 'rio', 'shanghai', 'yard']:
-        images_dir = './data/Panorama/adobe_panoramas/data/' + name
-        images_paths = natsorted(get_images_paths(images_dir))
+    images_dir = './data/Panorama/adobe_panoramas/data/campus'
+    images_paths = natsorted(get_images_paths(images_dir))
 
-        # Read/Estimate focal length
-        f = k1 = k2 = None
-        if path.exists(path.join(images_dir, 'info.txt')):
-            with open(path.join(images_dir, 'info.txt')) as f:
-                for line in f:
-                    key, val = line.split()
-                    if key == 'f':
-                        f = float(val)
-                    elif key == 'k1':
-                        k1 = float(val)
-                    elif key == 'k2':
-                        k2 = float(val)
-        else:
-            images = [cv2.imread(image_path) for image_path in images_paths]
-            f = estimate_focal_lengths(images, knnRatio=0.8, ransacThreshold=10)
+    # Read/Estimate focal length
+    f = k1 = k2 = None
+    if path.exists(path.join(images_dir, 'info.txt')):
+        with open(path.join(images_dir, 'info.txt')) as f:
+            for line in f:
+                key, val = line.split()
+                if key == 'f':
+                    f = float(val)
+                elif key == 'k1':
+                    k1 = float(val)
+                elif key == 'k2':
+                    k2 = float(val)
+    else:
+        images = [cv2.imread(image_path) for image_path in images_paths]
+        f = estimate_focal_lengths(images, knnRatio=0.8, ransacThreshold=10)
 
-        if f is None:
-            print("Cannot do anything without a focal length")
-        else:
-            panorama = TranslationalPanorama(images_paths, f, k1, k2)
-            panorama.warp_spherical()
-            panorama.calc_transformations()
-            result = panorama.merge()
-            cv2.imwrite(path.join('./data/Panorama/results', path.basename(images_dir) + '.png'), result)
-            cv2.waitKey()
+    if f is None:
+        print("Cannot do anything without a focal length")
+    else:
+        panorama = TranslationalPanorama(images_paths, f, k1, k2, ransacThreshold=3)
+        panorama.warp_spherical()
+        panorama.calc_transformations()
+        result = panorama.merge()
+        cv2.imwrite(
+            path.join('./data/Panorama/results', path.basename(images_dir) + '.png'), result)
