@@ -1,67 +1,41 @@
 from __future__ import print_function, division
 import numpy
 import cv2
-from common_utils import trackbar_changed_do_nothing
-
-
-def get_laplacian_stacks(img):
-    lap_stacks = []
-    temp_1 = img.copy()
-    temp_2 = cv2.pyrDown(temp_1)
-
-    for i in xrange(5):
-        temp_2_up = cv2.pyrUp(temp_2)
-        lap_stacks.append(cv2.subtract(temp_1, temp_2_up))
-
-        temp_1 = temp_2
-        temp_2 = cv2.pyrDown(temp_2)
-
-    lap_stacks.append(temp_1)
-
-    return lap_stacks[::-1]
-
-
-def merge_two_stacks(stack_1, stack_2, x_percentage):
-    result_stack = []
-    for img1, img2 in zip(stack_1, stack_2):
-        col_number = int(x_percentage * img1.shape[1])
-        merged_img = numpy.hstack(
-            (img1[:, 0:col_number], img2[:, col_number:]))
-        result_stack.append(merged_img)
-
-    return result_stack
-
-
-def pyr_blending(stack):
-    length = len(stack)
-
-    blended = stack[0]
-    for i in range(1, length):
-        blended = cv2.pyrUp(blended)
-        blended = cv2.add(blended, stack[i])
-
-    return blended
+from common_utils import (
+    trackbar_changed_do_nothing, 
+    get_laplacian_stack, 
+    get_gaussian_stack,
+    pyr_blending
+)
 
 
 if __name__ == '__main__':
-    apple = cv2.imread('data/apple.jpg')
-    orange = cv2.imread('data/orange.jpg')
+    apple = cv2.imread('data/apple.jpg').astype(numpy.float32)
+    orange = cv2.imread('data/orange.jpg').astype(numpy.float32)
 
-    cv2.namedWindow('blended')
-    cv2.createTrackbar(
-        'horizontal amount', 'blended', 50, 100, trackbar_changed_do_nothing)
+    h, w = apple.shape[:2]
+    mask_1 = numpy.zeros((h, w, 3), dtype=numpy.float32)
+    mask_2 = numpy.zeros((h, w, 3), dtype=numpy.float32)
+    mask_3 = numpy.zeros((h, w, 3), dtype=numpy.float32)
+    mask_4 = numpy.zeros((h, w, 3), dtype=numpy.float32)
+    mask_1[:, :w/2] = 1.0
+    mask_2[:, w/2:] = 1.0
+    mask_3[:h/2, :] = 1.0
+    mask_4[h/2:, :] = 1.0
 
-    num_cols = apple.shape[1]
+    apple_stack = get_laplacian_stack(apple)
+    orange_stack = get_laplacian_stack(orange)
+    mask_stack_1 = get_gaussian_stack(mask_1)
+    mask_stack_2 = get_gaussian_stack(mask_2)
+    mask_stack_3 = get_gaussian_stack(mask_3)
+    mask_stack_4 = get_gaussian_stack(mask_4)
 
-    while True:
-        # Blending
-        apple_stacks = get_laplacian_stacks(apple)
-        orange_stacks = get_laplacian_stacks(orange)
-        result_stack = merge_two_stacks(apple_stacks, orange_stacks, cv2.getTrackbarPos(
-            'horizontal amount', 'blended') / 100)
-
-        blended = pyr_blending(result_stack)
-        cv2.imshow('blended', blended)
-        k = cv2.waitKey(1) & 0xFF
-        if k == 27:
-            break
+    blended_1 = pyr_blending(apple_stack, orange_stack, mask_stack_1)
+    blended_2 = pyr_blending(apple_stack, orange_stack, mask_stack_2)
+    blended_3 = pyr_blending(apple_stack, orange_stack, mask_stack_3)
+    blended_4 = pyr_blending(apple_stack, orange_stack, mask_stack_4)
+    cv2.imshow('blended 1', blended_1)
+    cv2.imshow('blended 2', blended_2)
+    cv2.imshow('blended 3', blended_3)
+    cv2.imshow('blended 4', blended_4)
+    cv2.waitKey()

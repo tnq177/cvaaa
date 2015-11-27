@@ -115,6 +115,7 @@ def estimate_focal_lengths(images, knnRatio=0.9, ransacThreshold=10):
 
 
 class TranslationTransform(GeometricTransform):
+
     def __init__(self):
         self.params = numpy.float32([0, 0])
 
@@ -122,12 +123,58 @@ class TranslationTransform(GeometricTransform):
         return src + self.params
 
     def estimate(self, src, dst):
-        diff = dst - src 
+        diff = dst - src
         rows = src.shape[0]
 
-        self.params = numpy.sum(diff, axis=0) / rows 
+        self.params = numpy.sum(diff, axis=0) / rows
 
         return True
 
     def residuals(self, src, dst):
         return numpy.sqrt(numpy.sum((self(src) - dst) ** 2, axis=1))
+
+
+def get_laplacian_stack(img, levels=6):
+    lap_stack = []
+    temp_1 = img.copy()
+    temp_2 = cv2.pyrDown(temp_1)
+
+    for i in xrange(levels - 1):
+        temp_2_up = cv2.pyrUp(temp_2)
+        lap_stack.append(temp_1 - temp_2_up)
+
+        temp_1 = temp_2
+        temp_2 = cv2.pyrDown(temp_2)
+
+    lap_stack.append(temp_1)
+
+    return lap_stack[::-1]
+
+
+def get_gaussian_stack(img, levels=6):
+    gaus_stack = [img]
+
+    temp = img.copy()
+    for i in xrange(levels - 1):
+        temp = cv2.pyrDown(temp)
+        gaus_stack.append(temp)
+
+    return gaus_stack[::-1]
+
+
+def pyr_blending(stack_1, stack_2, mask_stack):
+    '''
+    Expect all images are of type numpy.float32
+    '''
+    stack = []
+    for img1, img2, mask in zip(stack_1, stack_2, mask_stack):
+        merged_img = img1 * mask + img2 * (1 - mask)
+        stack.append(merged_img)
+
+    length = len(stack)
+    blended = stack[0]
+    for i in range(1, length):
+        blended = cv2.pyrUp(blended)
+        blended += stack[i]
+
+    return numpy.uint8(blended)

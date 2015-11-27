@@ -11,3 +11,5 @@ test.py
 data/connected.png
 data/panograph_10
 data/Panorama/adobe_panoramas
+htmlcov
+.coverage
