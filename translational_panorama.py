@@ -161,7 +161,7 @@ class TranslationalPanorama(object):
         return result
 
 if __name__ == '__main__':
-    images_dir = './data/Panorama/adobe_panoramas/data/campus'
+    images_dir = './data/Panorama/campus'
     images_paths = natsorted(get_images_paths(images_dir))
 
     # Read/Estimate focal length

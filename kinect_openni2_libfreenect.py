@@ -33,45 +33,47 @@ def show_depth_value(event, x, y, flags, param):
     global depth
     print(depth[y, x])
 
-# can also accept the path of the OpenNI redistribution
-openni2.initialize()
+if __name__ == '__main__':
+    # can also accept the path of the OpenNI redistribution
+    openni2.initialize()
 
-dev = openni2.Device.open_any()
+    dev = openni2.Device.open_any()
 
-depth_stream = dev.create_depth_stream()
-depth_stream.start()
+    depth_stream = dev.create_depth_stream()
+    depth_stream.start()
 
-color_stream = dev.create_color_stream()
-color_stream.start()
+    color_stream = dev.create_color_stream()
+    color_stream.start()
 
-depth_scale_factor = 255.0 / depth_stream.get_max_pixel_value()
+    depth_scale_factor = 255.0 / depth_stream.get_max_pixel_value()
 
-cv2.namedWindow('depth')
-cv2.setMouseCallback('depth', show_depth_value)
+    cv2.namedWindow('depth')
+    cv2.setMouseCallback('depth', show_depth_value)
 
-while True:
-    # Get depth
-    depth_frame = depth_stream.read_frame()
-    h, w = depth_frame.height, depth_frame.width
-    depth = numpy.ctypeslib.as_array(
-        depth_frame.get_buffer_as_uint16()).reshape(h, w)
-    depth_uint8 = cv2.convertScaleAbs(depth, alpha=depth_scale_factor)
-    depth_colored = cv2.applyColorMap(depth_uint8, cv2.COLORMAP_HSV)
+    while True:
+        # Get depth
+        depth_frame = depth_stream.read_frame()
+        h, w = depth_frame.height, depth_frame.width
+        depth = numpy.ctypeslib.as_array(
+            depth_frame.get_buffer_as_uint16()).reshape(h, w)
+        depth_uint8 = cv2.convertScaleAbs(depth, alpha=depth_scale_factor)
+        depth_colored = cv2.applyColorMap(depth_uint8, cv2.COLORMAP_HSV)
 
-    # Get color
-    color_frame = color_stream.read_frame()
-    color = numpy.ctypeslib.as_array(color_frame.get_buffer_as_uint8()).reshape(h, w, 3)
-    color = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
+        # Get color
+        color_frame = color_stream.read_frame()
+        color = numpy.ctypeslib.as_array(
+            color_frame.get_buffer_as_uint8()).reshape(h, w, 3)
+        color = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
 
-    # Display
-    cv2.imshow('depth', depth_uint8)
-    cv2.imshow('depth colored', depth_colored)
-    cv2.imshow('color', color)
-    
-    k = cv2.waitKey(10) & 0xff
-    if k == 27:
-        break
+        # Display
+        cv2.imshow('depth', depth_uint8)
+        cv2.imshow('depth colored', depth_colored)
+        cv2.imshow('color', color)
 
-depth_stream.stop()
+        k = cv2.waitKey(10) & 0xff
+        if k == 27:
+            break
 
-openni2.unload()
+    depth_stream.stop()
+
+    openni2.unload()
