@@ -6,11 +6,12 @@ I do not own the image
 from __future__ import print_function, division
 import numpy
 import cv2
+import sys
 from common_utils import trackbar_changed_do_nothing
 
 
 if __name__ == '__main__':
-    img = cv2.imread('./data/photosphere.jpg')
+    img = cv2.imread(sys.argv[1])
     img = cv2.resize(
         img, None, fx=0.75, fy=0.75, interpolation=cv2.INTER_LANCZOS4)
     little_planet = img.copy()
