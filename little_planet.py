@@ -12,15 +12,20 @@ from common_utils import trackbar_changed_do_nothing
 
 if __name__ == '__main__':
     img = cv2.imread(sys.argv[1])
+    if len(sys.argv) > 2:
+    	resize_factor = float(sys.argv[2])
+    	if resize_factor <= 0 or resize_factor > 1:
+    		resize_factor = 0.75
+
     img = cv2.resize(
-        img, None, fx=0.75, fy=0.75, interpolation=cv2.INTER_LANCZOS4)
+        img, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_LANCZOS4)
     little_planet = img.copy()
     h, w = img.shape[:2]
 
     base_map_x, base_map_y = numpy.float32(
         numpy.meshgrid(numpy.arange(w), numpy.arange(h)))
 
-    cv2.namedWindow('little planet')
+    cv2.namedWindow('little planet', cv2.WINDOW_NORMAL)
     cv2.createTrackbar(
         'longitude', 'little planet', 0, 360, trackbar_changed_do_nothing)
     cv2.createTrackbar(
@@ -64,5 +69,7 @@ if __name__ == '__main__':
 
         cv2.imshow('little planet', little_planet)
         k = cv2.waitKey(1) & 0xFF
+        if k == ord('s'):
+        	cv2.imwrite('little-planet-' + sys.argv[1], little_planet, params=[int(cv2.IMWRITE_JPEG_QUALITY), 100])
         if k == 27:
             break
