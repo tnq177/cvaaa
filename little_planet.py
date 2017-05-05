@@ -9,9 +9,13 @@ import cv2
 import sys
 from common_utils import trackbar_changed_do_nothing
 
+def main():
+    if len(sys.argv) < 2:
+        print('python little_planet.py image_path <resize_factor>')
+        return 0
 
-if __name__ == '__main__':
     img = cv2.imread(sys.argv[1])
+    resize_factor = 0.75
     if len(sys.argv) > 2:
     	resize_factor = float(sys.argv[2])
     	if resize_factor <= 0 or resize_factor > 1:
@@ -73,3 +77,6 @@ if __name__ == '__main__':
         	cv2.imwrite('little-planet-' + sys.argv[1], little_planet, params=[int(cv2.IMWRITE_JPEG_QUALITY), 100])
         if k == 27:
             break
+
+if __name__ == '__main__':
+    main()
